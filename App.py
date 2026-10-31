@@ -10,7 +10,7 @@ app = Flask(__name__)
 API_KEY = os.environ.get("OKX_API_KEY")
 SECRET_KEY = os.environ.get("OKX_SECRET_KEY")
 PASSPHRASE = os.environ.get("OKX_PASSPHRASE")
-IS_DEMO = True  # Zmień na False, gdy przejdziesz z konta Demo na prawdziwe środki!
+IS_DEMO = False  # Zmień na False, gdy przejdziesz z konta Demo na prawdziwe środki!
 
 OKX_URL = "https://okx.com" if not IS_DEMO else "https://okx.com/sandbox"
 
