@@ -1,9 +1,10 @@
 import os
-from flask import Flask, request
+from flask import Flask, request, jsonify
 import hmac
 import base64
 import datetime
 import requests
+import json  # Potrzebne do prawidłowego formatowania JSON dla OKX
 import threading
 
 app = Flask(__name__)
@@ -11,10 +12,12 @@ app = Flask(__name__)
 API_KEY = os.environ.get("OKX_API_KEY")
 SECRET_KEY = os.environ.get("OKX_SECRET_KEY")
 PASSPHRASE = os.environ.get("OKX_PASSPHRASE")
-IS_DEMO = False  # Zmień na False, gdy przejdziesz z konta Demo na prawdziwe środki!
 
-# POPRAWKA: OKX używa tej samej domeny dla Live i Demo. O Demo decyduje nagłówek.
-OKX_URL = "https://www.okx.com"
+# PRZEŁĄCZONE NA LIVE
+IS_DEMO = False  
+
+# Adres URL dla prawdziwych środków
+OKX_URL = "https://okx.com"
 
 def get_timestamp():
     return datetime.datetime.utcnow().isoformat()[:-3] + "Z"
@@ -26,7 +29,10 @@ def generate_signature(timestamp, method, request_path, body=""):
 
 def okx_request(method, path, data=None):
     timestamp = get_timestamp()
-    body = str(data) if data else ""
+    
+    # Prawidłowe kodowanie JSON z podwójnymi cudzysłowami dla OKX
+    body = json.dumps(data) if data else ""
+    
     signature = generate_signature(timestamp, method, path, body)
     
     headers = {
@@ -36,68 +42,29 @@ def okx_request(method, path, data=None):
         "OK-ACCESS-PASSPHRASE": PASSPHRASE,
         "Content-Type": "application/json"
     }
-    if IS_DEMO:
-        headers["x-simulated-trading"] = "1"
+    # Nagłówek x-simulated-trading został usunięty, ponieważ przechodzimy na LIVE
         
     url = OKX_URL + path
-    
     try:
         if method == "POST":
             response = requests.post(url, json=data, headers=headers)
         else:
             response = requests.get(url, headers=headers)
             
-        # Zabezpieczenie przed JSONDecodeError - sprawdzamy status odpowiedzi
+        # Bezpieczne dekodowanie odpowiedzi, zapobiega crashom bota
         if response.status_code == 200:
             return response.json()
         else:
-            print(f"[OKX] Serwer zwrócił błąd HTTP {response.status_code}: {response.text}")
+            print(f"[OKX LIVE BŁĄD HTTP {response.status_code}]: {response.text}")
             return {"error": response.text}
-            
     except Exception as e:
-        print(f"[Błąd sieciowy]: {e}")
+        print(f"[BŁĄD SIECIOWY OKX LIVE]: {str(e)}")
         return {"error": str(e)}
 
-def process_trade_in_background(data):
-    """Ta funkcja wykonuje się w osobnym wątku w tle. 
-    TradingView nie musi na nią czekać."""
-    print("Rozpoczynam przetwarzanie sygnału w tle...")
-    
-    # Przykładowe przygotowanie zlecenia rynkowego (Market Order) dla OKX
-    # Ścieżka API OKX do składania zleceń to: /api/v5/trade/order
-    # Alert z TradingView musi wysyłać odpowiedni format JSON
-    path = "/api/v5/trade/order"
-    
-    # Przykładowy payload, dostosuj pod swoje zmienne z TradingView
-    order_data = {
-        "instId": data.get("ticker", "BTC-USDT"),
-        "tdMode": "cash", # lub "cross" / "isolated" dla dźwigni
-        "side": data.get("action", "buy"),
-        "ordType": "market",
-        "sz": str(data.get("size", "0.001"))
-    }
-    
-    # Wysyłamy zapytanie do OKX
-    result = okx_request("POST", path, order_data)
-    print("Wynik zlecenia OKX:", result)
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    data = request.json
-    print("Otrzymano sygnał z TradingView:", data)
-    
-    # Uruchamiamy proces zawierający zapytania do OKX w osobnym wątku (w tle)
-    threading.Thread(target=process_trade_in_background, args=(data,)).start()
-    
-    # Natychmiast zwracamy odpowiedź do TradingView, zapobiegając timeoutom
-    return "Sygnał przekazany do realizacji", 200
-
-@app.route('/', methods=['GET'])
-def health_check():
-    """Dodatkowy endpoint do utrzymywania serwera Render przy życiu"""
-    return "Serwer działa", 200
-
+def execute_trade_in_background(data):
+    """Ta funkcja wykonuje się w tle. TradingView już o niej nie wie i nie czeka."""
     action = data.get("action", "")
+    print(f"[LIVE-TŁO] Rozpoczynam przetwarzanie akcji: {action}")
     
     # 1. Ustawienie dźwigni 5x na izolowanym depozycie
     leverage_data = {
@@ -117,18 +84,36 @@ def health_check():
             "sz": "1"  # 1 kontrakt = 100 USD wartości pozycji
         }
         result = okx_request("POST", "/trade/order", order_data)
-        return jsonify({"status": "Otwarte automatycznie", "okx_response": result})
+        print("[LIVE-TŁO] Wynik otwarcia pozycji:", result)
         
-    # 3. Awaryjne automatyczne zamknięcie (jeśli nie zamkniesz ręcznie)
+    # 3. Awaryjne automatyczne zamknięcie
     elif action == "EXIT_LONG":
         close_data = {
             "instId": "BTC-USD-SWAP",
             "mgnMode": "isolated"
         }
         result = okx_request("POST", "/trade/close-position", close_data)
-        return jsonify({"status": "Zamknięte automatycznie", "okx_response": result})
-        
-    return jsonify({"status": "error", "message": "Nieznana akcja"}), 400
+        print("[LIVE-TŁO] Wynik zamknięcia pozycji:", result)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    # Pobranie danych i natychmiastowe logowanie
+    data = request.json
+    print("Otrzymano sygnał z TradingView:", data)
+    
+    if not data:
+        return jsonify({"status": "error", "message": "Pusty payload JSON"}), 400
+
+    # URUCHOMIENIE W TLE: Przekazujemy robotę do osobnego wątku
+    threading.Thread(target=execute_trade_in_background, args=(data,)).start()
+    
+    # NATYCHMIASTOWA ODPOWIEDŹ: TradingView dostaje odpowiedź w < 10 ms i nie zgłasza timeoutu
+    return jsonify({"status": "Sygnał przyjęty do realizacji w tle na koncie LIVE"}), 200
+
+@app.route('/', methods=['GET'])
+def health_check():
+    """Prosty endpoint do sprawdzania czy bot żyje (np. dla UptimeRobot)"""
+    return "Bot LIVE is alive", 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
