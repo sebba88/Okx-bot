@@ -11,7 +11,7 @@ app = Flask(__name__)
 API_KEY = os.environ.get("OKX_API_KEY")
 SECRET_KEY = os.environ.get("OKX_SECRET_KEY")
 PASSPHRASE = os.environ.get("OKX_PASSPHRASE")
-IS_DEMO = True  # Zmień na False, gdy przejdziesz z konta Demo na prawdziwe środki!
+IS_DEMO = False  # Zmień na False, gdy przejdziesz z konta Demo na prawdziwe środki!
 
 # POPRAWKA: OKX używa tej samej domeny dla Live i Demo. O Demo decyduje nagłówek.
 OKX_URL = "https://www.okx.com"
