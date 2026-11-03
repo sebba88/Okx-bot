@@ -17,7 +17,7 @@ PASSPHRASE = os.environ.get("OKX_PASSPHRASE")
 IS_DEMO = False  
 
 # Adres URL dla prawdziwych środków
-OKX_URL = "https://okx.com"
+OKX_URL = "https://eea.okx.com"
 
 def get_timestamp():
     return datetime.datetime.utcnow().isoformat()[:-3] + "Z"
