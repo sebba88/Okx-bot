@@ -4,7 +4,7 @@ import hmac
 import base64
 import datetime
 import requests
-import json  # Potrzebne do prawidłowego formatowania JSON dla OKX
+import json  
 import threading
 
 app = Flask(__name__)
@@ -16,7 +16,7 @@ PASSPHRASE = os.environ.get("OKX_PASSPHRASE")
 # PRZEŁĄCZONE NA LIVE
 IS_DEMO = False  
 
-# Adres URL dla prawdziwych środków
+# Prawidłowy adres bazowy dla Europy
 OKX_URL = "https://eea.okx.com"
 
 def get_timestamp():
@@ -30,10 +30,14 @@ def generate_signature(timestamp, method, request_path, body=""):
 def okx_request(method, path, data=None):
     timestamp = get_timestamp()
     
-    # Prawidłowe kodowanie JSON z podwójnymi cudzysłowami dla OKX
-    body = json.dumps(data) if data else ""
+    # OKX wymaga pełnej ścieżki zaczynającej się od /api/v5/
+    full_path = f"/api/v5{path}"
     
-    signature = generate_signature(timestamp, method, path, body)
+    # Prawidłowe kodowanie JSON dla metody POST
+    body = json.dumps(data) if (data and method == "POST") else ""
+    
+    # Dla metody GET parametry przekazuje się w URL, body musi być puste
+    signature = generate_signature(timestamp, method, full_path, body)
     
     headers = {
         "OK-ACCESS-KEY": API_KEY,
@@ -42,16 +46,15 @@ def okx_request(method, path, data=None):
         "OK-ACCESS-PASSPHRASE": PASSPHRASE,
         "Content-Type": "application/json"
     }
-    # Nagłówek x-simulated-trading został usunięty, ponieważ przechodzimy na LIVE
         
-    url = OKX_URL + path
+    url = OKX_URL + full_path
     try:
         if method == "POST":
             response = requests.post(url, json=data, headers=headers)
         else:
-            response = requests.get(url, headers=headers)
+            # Dla GET dodajemy ewentualne parametry do urla
+            response = requests.get(url, params=data, headers=headers)
             
-        # Bezpieczne dekodowanie odpowiedzi, zapobiega crashom bota
         if response.status_code == 200:
             return response.json()
         else:
@@ -64,11 +67,12 @@ def okx_request(method, path, data=None):
 def execute_trade_in_background(data):
     """Ta funkcja wykonuje się w tle. TradingView już o niej nie wie i nie czeka."""
     action = data.get("action", "")
+    inst_id = "BTC-USD-SWAP"
     print(f"[LIVE-TŁO] Rozpoczynam przetwarzanie akcji: {action}")
     
     # 1. Ustawienie dźwigni 5x na izolowanym depozycie
     leverage_data = {
-        "instId": "BTC-USD-SWAP",
+        "instId": inst_id,
         "lever": "5",
         "mgnMode": "isolated"
     }
@@ -77,7 +81,7 @@ def execute_trade_in_background(data):
     # 2. Reakcja na sygnał wejścia
     if action == "ENTER_LONG":
         order_data = {
-            "instId": "BTC-USD-SWAP",
+            "instId": inst_id,
             "tdMode": "isolated",
             "side": "buy",
             "ordType": "market",
@@ -86,10 +90,30 @@ def execute_trade_in_background(data):
         result = okx_request("POST", "/trade/order", order_data)
         print("[LIVE-TŁO] Wynik otwarcia pozycji:", result)
         
-    # 3. Awaryjne automatyczne zamknięcie
+    # 3. Zabezpieczone automatyczne zamknięcie
     elif action == "EXIT_LONG":
+        print("[LIVE-TŁO] Sprawdzam, czy pozycja istnieje przed zamknięciem...")
+        
+        # Pobieramy aktualne pozycje z giełdy (Metoda GET)
+        pos_check = okx_request("GET", "/account/positions", {"instId": inst_id})
+        
+        # Filtrujemy dane w poszukiwaniu aktywnej pozycji
+        active_positions = pos_check.get("data", []) if isinstance(pos_check, dict) else []
+        
+        # Jeśli lista pozycji jest pusta lub rozmiar wynosi 0
+        has_position = False
+        for pos in active_positions:
+            if pos.get("instId") == inst_id and float(pos.get("pos", 0)) > 0:
+                has_position = True
+                break
+                
+        if not has_position:
+            print(f"[LIVE-TŁO] Brak otwartej pozycji dla {inst_id} na giełdzie. Ignoruję powtórny sygnał EXIT z TradingView.")
+            return
+
+        # Jeśli pozycja istnieje, bezpiecznie ją zamykamy
         close_data = {
-            "instId": "BTC-USD-SWAP",
+            "instId": inst_id,
             "mgnMode": "isolated"
         }
         result = okx_request("POST", "/trade/close-position", close_data)
@@ -97,22 +121,17 @@ def execute_trade_in_background(data):
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    # Pobranie danych i natychmiastowe logowanie
     data = request.json
     print("Otrzymano sygnał z TradingView:", data)
     
     if not data:
         return jsonify({"status": "error", "message": "Pusty payload JSON"}), 400
 
-    # URUCHOMIENIE W TLE: Przekazujemy robotę do osobnego wątku
     threading.Thread(target=execute_trade_in_background, args=(data,)).start()
-    
-    # NATYCHMIASTOWA ODPOWIEDŹ: TradingView dostaje odpowiedź w < 10 ms i nie zgłasza timeoutu
     return jsonify({"status": "Sygnał przyjęty do realizacji w tle na koncie LIVE"}), 200
 
 @app.route('/', methods=['GET'])
 def health_check():
-    """Prosty endpoint do sprawdzania czy bot żyje (np. dla UptimeRobot)"""
     return "Bot LIVE is alive", 200
 
 if __name__ == '__main__':
