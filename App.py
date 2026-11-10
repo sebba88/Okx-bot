@@ -67,13 +67,13 @@ def okx_request(method, path, data=None):
 def execute_trade_in_background(data):
     """Ta funkcja wykonuje się w tle. TradingView już o niej nie wie i nie czeka."""
     action = data.get("action", "")
-    inst_id = "BTC-USDC-SWAP"
+    inst_id = "BTC-USD_UM_XPERP-040431"
     print(f"[LIVE-TŁO] Rozpoczynam przetwarzanie akcji: {action}")
     
     # 1. Ustawienie dźwigni 5x na izolowanym depozycie
     leverage_data = {
         "instId": inst_id,
-        "lever": "7",
+        "lever": "8",
         "mgnMode": "isolated"
     }
     okx_request("POST", "/account/set-leverage", leverage_data)
