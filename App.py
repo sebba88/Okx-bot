@@ -85,7 +85,7 @@ def execute_trade_in_background(data):
             "tdMode": "isolated",
             "side": "buy",
             "ordType": "market",
-            "sz": "2"  # 1 kontrakt = 100 USD wartości pozycji
+            "sz": "19"  # 1 kontrakt = 100 USD wartości pozycji
         }
         result = okx_request("POST", "/trade/order", order_data)
         print("[LIVE-TŁO] Wynik otwarcia pozycji:", result)
