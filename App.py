@@ -65,6 +65,10 @@ def okx_request(method, path, data=None):
         return {"error": str(e)}
 
 def execute_trade_in_background(data):
+        # Dodaj to tymczasowo na początku funkcji execute_trade_in_background:
+    instruments = okx_request("GET", "/public/instruments?instType=FUTURES")
+    print("[DEBUG INSTRUMENTY]:", [i.get("instId") for i in instruments.get("data", []) if "BTC" in i.get("instId", "")])
+
     """Ta funkcja wykonuje się w tle. TradingView już o niej nie wie i nie czeka."""
     action = data.get("action", "")
     inst_id = "BTC-USD_UM_XPERP-040431"
