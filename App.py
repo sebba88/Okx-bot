@@ -71,7 +71,7 @@ def execute_trade_in_background(data):
 
     """Ta funkcja wykonuje się w tle. TradingView już o niej nie wie i nie czeka."""
     action = data.get("action", "")
-    inst_id = "BTC-USD_UM_XPERP-040431"
+    inst_id = "BTC-USD_UM-040431"
     print(f"[LIVE-TŁO] Rozpoczynam przetwarzanie akcji: {action}")
     
     # 1. Ustawienie dźwigni 5x na izolowanym depozycie
